@@ -43,6 +43,7 @@ template< class T > const vec2i image< T >::get_dim() const { return dim; }
 
 template< class T > void image< T >::set_dim( const vec2i& dims ) {
     dim = dims;
+    bounds.set( { -1.0, ( -1.0 * dim.y ) / dim.x }, { 1.0, ( 1.0 * dim.y ) / dim.x } );
     ipbounds.set( { 0, 0 }, dim );
     fpbounds.set( { 0.0f, 0.0f }, ( vec2f )dim - 1.0f );
 }
@@ -156,18 +157,23 @@ template< class T > void image< T >::splat(
     const vec2f& center, 			    // coordinates of splat center
     const float& scale, 			    // radius of splat
     const float& theta, 			    // rotation in degrees
-    const std::optional< std::reference_wrapper< image< T > > > splat_image,    // image of the splat
-    const std::optional< std::reference_wrapper< image< T > > > mask,   // optional mask image - currentl must have same dimensions as splat
-    const std::optional< std::reference_wrapper< T > >          tint,   // change the color of splat
-    const mask_mode& mmode               // how will mask be applied to splat and backround?
+    std::shared_ptr< image< T > > splat_image,    // image of the splat
+    std::shared_ptr< image< T > > mask, // optional mask image
+    const std::optional< T >&     tint, // change the color of splat
+    const mask_mode& mmode              // how will mask be applied to splat and backround?
 )  
 {   
-    if( !(splat_image.has_value()) )   return;  // image missing
-    image< T >& g = splat_image->get();
+    std::cout << "  image::splat\n";
+    if( !(splat_image.get()) )   {
+        std::cout << "  no splat image\n";
+        return;  // null pointer - image missing
+    } 
+    image< T >& g = *splat_image;
     bool has_tint = tint.has_value();
+    if( tint.has_value() ) std::cout << "  tinted\n";
     T my_tint;
-    if( has_tint ) my_tint = tint->get();
-    bool has_mask = mask.has_value();
+    if( has_tint ) my_tint = *tint;
+    bool has_mask = ( mask.get() != NULL );
 
     float thrad = theta / 360.0 * TAU;              // theta in radians
     vec2i p = ipbounds.bb_map( center, bounds);     // center of splat in pixel coordinates
@@ -176,7 +182,7 @@ template< class T > void image< T >::splat(
 	vec2f smin = bounds.bb_map( sbounds.minv, ipbounds );
 	vec2f sc;
 	sc.x = (smin.x - center.x) / scale;
-	sc.y = -(smin.y - center.y) / scale;
+	sc.y = (smin.y - center.y) / scale;
     sc = linalg::rot( -thrad, sc );
 
 	// calculate unit vectors - one pixel long
@@ -185,7 +191,7 @@ template< class T > void image< T >::splat(
 	unx.y = 0.0f;
 	unx = linalg::rot( -thrad, unx );
 	uny.x = 0.0f;
-	uny.y = 1.0f / dim.y * ( bounds.b2.y - bounds.b1.y ) / scale;
+	uny.y = -1.0f / dim.y * ( bounds.b2.y - bounds.b1.y ) / scale;
 	uny = linalg::rot( -thrad, uny );
 
 	// convert vectors to splat pixel space - fixed point
@@ -201,7 +207,7 @@ template< class T > void image< T >::splat(
     // future: add option to smooth sample into splat's mip-map
     // future: add vector and color effects
     if( has_mask ) {
-        image< T >& m = mask->get();
+        image< T >& m = *mask;
         // image and mask same size
         if( m.dim == g.dim ) {
             for( int x = sbounds.minv.x; x < sbounds.maxv.x; x++ ) {
